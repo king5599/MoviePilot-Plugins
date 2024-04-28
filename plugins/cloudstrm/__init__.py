@@ -21,15 +21,19 @@ from app.plugins import _PluginBase
 from app.core.config import settings
 
 
-class cloudstrm(_PluginBase):
+class CloudStrm(_PluginBase):
     # 插件名称
     plugin_name = "云盘Strm生成"
     # 插件描述
-    plugin_desc = "定时扫描webdav云盘文件，生成Strm文件。"
+    plugin_desc = "定时扫描云盘文件，生成Strm文件。"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/create.png"
     # 插件版本
-    plugin_version = "3.7"
+    plugin_version = "3.6.1"
+    # 插件作者
+    plugin_author = "thsrite"
+    # 作者主页
+    author_url = "https://github.com/thsrite"
     # 插件配置项ID前缀
     plugin_config_prefix = "cloudstrm_"
     # 加载顺序
@@ -580,7 +584,7 @@ class cloudstrm(_PluginBase):
         if self._enabled and self._cron:
             return [{
                 "id": "CloudStrm",
-                "name": "云盘Strm生成",
+                "name": "云盘strm文件生成服务",
                 "trigger": CronTrigger.from_crontab(self._cron),
                 "func": self.scan,
                 "kwargs": {}
