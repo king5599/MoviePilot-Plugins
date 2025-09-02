@@ -26,9 +26,30 @@ def test_plugin_structure():
             with open(package_file, 'r', encoding='utf-8') as f:
                 package_data = json.load(f)
             
-            if isinstance(package_data, list) and len(package_data) > 0:
+            if isinstance(package_data, dict):
+                # 查找插件信息
+                plugin_info = None
+                for key, value in package_data.items():
+                    if key == "emptyfilecleaner":
+                        plugin_info = value
+                        break
+                
+                if plugin_info:
+                    print(f"✅ package.v2.json 格式正确（对象格式）")
+                    print(f"   插件ID: emptyfilecleaner")
+                    print(f"   插件名称: {plugin_info.get('name', 'N/A')}")
+                    print(f"   版本: {plugin_info.get('version', 'N/A')}")
+                    print(f"   V2标识: {plugin_info.get('v2', False)}")
+                    
+                    if not plugin_info.get('v2', False):
+                        warnings.append("⚠️  V2标识为False或不存在")
+                else:
+                    errors.append("❌ 在package.v2.json中未找到emptyfilecleaner插件配置")
+            elif isinstance(package_data, list) and len(package_data) > 0:
+                # 旧的数组格式，虽然有些版本支持，但建议用对象格式
                 plugin_info = package_data[0]
-                print(f"✅ package.v2.json 格式正确")
+                warnings.append("⚠️  使用数组格式，建议改为对象格式")
+                print(f"⚠️  package.v2.json 使用数组格式")
                 print(f"   插件ID: {plugin_info.get('id', 'N/A')}")
                 print(f"   插件名称: {plugin_info.get('name', 'N/A')}")
                 print(f"   版本: {plugin_info.get('version', 'N/A')}")
@@ -37,7 +58,7 @@ def test_plugin_structure():
                 if not plugin_info.get('v2', False):
                     warnings.append("⚠️  V2标识为False或不存在")
             else:
-                errors.append("❌ package.v2.json 格式不正确（应该是数组格式）")
+                errors.append("❌ package.v2.json 格式不正确（应该是对象格式，键为插件ID）")
         except json.JSONDecodeError as e:
             errors.append(f"❌ package.v2.json JSON格式错误: {e}")
         except Exception as e:
