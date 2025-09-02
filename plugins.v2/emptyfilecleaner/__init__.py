@@ -14,19 +14,19 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 
-class EmptyFileCleaner(_PluginBase):
+class EmptyFileCleanerPlugin(_PluginBase):
     # 插件名称
-    plugin_name = "空文件清理器"
+    plugin_name = "CD2备份空文件夹清理"
     # 插件描述
-    plugin_desc = "自动删除指定目录下的空文件（包括子目录），支持排除指定目录，可设置最小文件大小阈值"
+    plugin_desc = "专为CD2备份清理而设计，自动删除指定目录下的空文件（包括子目录），支持排除指定目录，可设置最小文件大小阈值"
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
     plugin_author = "assistant"
     # 作者主页
-    author_url = "https://github.com/assistant"
+    author_url = "https://github.com/king5599/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "emptyfilecleaner_"
     # 加载顺序
@@ -56,11 +56,21 @@ class EmptyFileCleaner(_PluginBase):
         检测MoviePilot版本
         """
         try:
+            # 尝试检测V2版本特征
             if hasattr(settings, 'VERSION_FLAG'):
-                return settings.VERSION_FLAG  # V2
-            else:
-                return "v1"
-        except Exception:
+                return settings.VERSION_FLAG
+            # 检查V2特有的模块或属性
+            try:
+                from app.core.plugin import PluginManager
+                return "v2"
+            except ImportError:
+                pass
+            # 检查V2的配置结构
+            if hasattr(settings, 'PLUGIN_DIR') and 'plugins.v2' in str(getattr(settings, 'PLUGIN_DIR', '')):
+                return "v2"
+            return "v1"
+        except Exception as e:
+            logger.debug(f"版本检测异常，默认使用v1：{e}")
             return "v1"
 
     def init_plugin(self, config: dict = None):
@@ -750,3 +760,7 @@ class EmptyFileCleaner(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.error(f"停止空文件清理器服务失败：{e}")
+
+
+# 导出插件类，这对V2插件很重要
+__all__ = ["EmptyFileCleanerPlugin"]
