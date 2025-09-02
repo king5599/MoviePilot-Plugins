@@ -4,7 +4,7 @@
     "description": "自动删除指定目录下的空文件（包括子目录），支持排除指定目录。可以设置最小文件大小阈值，支持定时任务和手动执行。",
     "labels": "清理,空文件,目录管理,定时任务",
     "version": "1.0.0",
-    "icon": "https://raw.githubusercontent.com/yubanmeiqin9048/MoviePilot-Plugins/main/icons/clean.png",
+    "icon": "delete.jpg",
     "author": "assistant",
     "level": 1
   }

@@ -20,7 +20,7 @@ class EmptyFileCleaner(_PluginBase):
     # 插件描述
     plugin_desc = "自动删除指定目录下的空文件（包括子目录），支持排除指定目录，可设置最小文件大小阈值"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/clean.png"
+    plugin_icon = "delete.jpg"
     # 插件版本
     plugin_version = "1.0.1"
     # 插件作者
