@@ -22,7 +22,7 @@ class EmptyFileCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "assistant"
     # 作者主页
@@ -119,13 +119,22 @@ class EmptyFileCleaner(_PluginBase):
         """
         获取插件API
         """
-        return [{
-            "path": "/clean_empty_files",
-            "endpoint": self.clean_empty_files,
-            "methods": ["GET"],
-            "summary": "清理空文件",
-            "description": "立即执行空文件清理任务",
-        }]
+        return [
+            {
+                "path": "/clean_empty_files",
+                "endpoint": self.clean_empty_files,
+                "methods": ["GET"],
+                "summary": "清理空文件",
+                "description": "立即执行空文件清理任务",
+            },
+            {
+                "path": "/scan_empty_dirs",
+                "endpoint": self.scan_empty_dirs,
+                "methods": ["GET"],
+                "summary": "扫描空目录",
+                "description": "扫描并列出所有空目录，不执行删除",
+            }
+        ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -327,7 +336,7 @@ class EmptyFileCleaner(_PluginBase):
                 'content': [
                     {
                         'component': 'VCol',
-                        'props': {'cols': 12},
+                        'props': {'cols': 12, 'md': 6},
                         'content': [
                             {
                                 'component': 'VCard',
@@ -341,12 +350,45 @@ class EmptyFileCleaner(_PluginBase):
                                                 'props': {
                                                     'color': 'primary',
                                                     'size': 'large',
-                                                    'variant': 'elevated'
+                                                    'variant': 'elevated',
+                                                    'class': 'mr-3'
                                                 },
                                                 'content': ['立即清理'],
                                                 'events': {
                                                     'click': {
                                                         'api': 'plugin/EmptyFileCleaner/clean_empty_files',
+                                                        'method': 'get'
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VCol',
+                        'props': {'cols': 12, 'md': 6},
+                        'content': [
+                            {
+                                'component': 'VCard',
+                                'content': [
+                                    {
+                                        'component': 'VCardText',
+                                        'props': {'class': 'pa-4'},
+                                        'content': [
+                                            {
+                                                'component': 'VBtn',
+                                                'props': {
+                                                    'color': 'info',
+                                                    'size': 'large',
+                                                    'variant': 'elevated'
+                                                },
+                                                'content': ['扫描空目录'],
+                                                'events': {
+                                                    'click': {
+                                                        'api': 'plugin/EmptyFileCleaner/scan_empty_dirs',
                                                         'method': 'get'
                                                     }
                                                 }
@@ -374,6 +416,74 @@ class EmptyFileCleaner(_PluginBase):
                             title="开始执行空文件清理任务",
                             userid=event_data.get("user"))
             self.clean_empty_files()
+
+    def scan_empty_dirs(self):
+        """
+        扫描并列出空目录，不执行删除
+        """
+        if not self._target_dirs.strip():
+            logger.warning("未配置目标目录")
+            return {"error": "未配置目标目录"}
+
+        logger.info("开始扫描空目录")
+        empty_dirs = []
+
+        try:
+            # 解析目标目录
+            target_directories = [Path(line.strip()) for line in self._target_dirs.strip().split('\n') if line.strip()]
+            
+            # 解析排除目录
+            exclude_directories = []
+            if self._exclude_dirs.strip():
+                exclude_directories = [Path(line.strip()) for line in self._exclude_dirs.strip().split('\n') if line.strip()]
+
+            for target_dir in target_directories:
+                if not target_dir.exists():
+                    logger.warning(f"目标目录不存在：{target_dir}")
+                    continue
+
+                logger.info(f"扫描目录：{target_dir}")
+                
+                # 获取所有子目录
+                all_dirs = []
+                for root, dirs, files in os.walk(target_dir):
+                    for dir_name in dirs:
+                        dir_path = Path(root) / dir_name
+                        all_dirs.append(dir_path)
+                
+                logger.info(f"在 {target_dir} 中找到 {len(all_dirs)} 个子目录")
+                
+                # 按路径深度排序，深的在前
+                all_dirs.sort(key=lambda x: len(x.parts), reverse=True)
+
+                for dir_path in all_dirs:
+                    try:
+                        # 检查是否是排除目录
+                        is_excluded = any(self._is_subdirectory_or_same(dir_path, exclude_dir) for exclude_dir in exclude_directories)
+                        if is_excluded:
+                            logger.debug(f"跳过排除目录：{dir_path}")
+                            continue
+
+                        # 检查目录是否为空
+                        if self._is_directory_empty(dir_path):
+                            empty_dirs.append(str(dir_path))
+                            logger.info(f"发现空目录：{dir_path}")
+                    except Exception as e:
+                        logger.warning(f"检查目录 {dir_path} 时出错：{e}")
+
+            result_msg = f"扫描完成！发现 {len(empty_dirs)} 个空目录"
+            if empty_dirs:
+                result_msg += ":\n" + "\n".join(empty_dirs[:10])  # 只显示前10个
+                if len(empty_dirs) > 10:
+                    result_msg += f"\n... 还有 {len(empty_dirs) - 10} 个"
+
+            logger.info(result_msg)
+            return {"empty_dirs": empty_dirs, "count": len(empty_dirs)}
+
+        except Exception as e:
+            error_msg = f"扫描空目录失败：{str(e)}"
+            logger.error(error_msg)
+            return {"error": error_msg}
 
     def clean_empty_files(self):
         """
@@ -488,10 +598,14 @@ class EmptyFileCleaner(_PluginBase):
         try:
             # 获取所有子目录，按深度排序（深的在前）
             all_dirs = []
+            logger.info(f"开始收集目录列表：{directory}")
+            
             for root, dirs, files in os.walk(directory):
                 for dir_name in dirs:
                     dir_path = Path(root) / dir_name
                     all_dirs.append(dir_path)
+            
+            logger.info(f"收集到 {len(all_dirs)} 个子目录")
             
             # 按路径深度排序，深的在前
             all_dirs.sort(key=lambda x: len(x.parts), reverse=True)
@@ -499,12 +613,16 @@ class EmptyFileCleaner(_PluginBase):
             for dir_path in all_dirs:
                 try:
                     # 检查是否是排除目录
-                    if any(self._is_subdirectory_or_same(dir_path, exclude_dir) for exclude_dir in exclude_dirs):
+                    is_excluded = any(self._is_subdirectory_or_same(dir_path, exclude_dir) for exclude_dir in exclude_dirs)
+                    if is_excluded:
                         logger.debug(f"跳过排除目录：{dir_path}")
                         continue
 
                     # 检查目录是否为空
-                    if self._is_directory_empty(dir_path):
+                    is_empty = self._is_directory_empty(dir_path)
+                    logger.debug(f"检查目录 {dir_path}：空={is_empty}")
+                    
+                    if is_empty:
                         if self._dry_run:
                             logger.info(f"[测试模式] 将删除空目录：{dir_path}")
                             cleaned_dirs.append(str(dir_path))
@@ -514,6 +632,8 @@ class EmptyFileCleaner(_PluginBase):
                             cleaned_dirs.append(str(dir_path))
                 except Exception as e:
                     logger.warning(f"处理目录 {dir_path} 时出错：{e}")
+
+            logger.info(f"空目录清理完成，处理了 {len(cleaned_dirs)} 个空目录")
 
         except Exception as e:
             logger.error(f"清理空目录时出错：{e}")
@@ -525,8 +645,38 @@ class EmptyFileCleaner(_PluginBase):
         检查目录是否为空
         """
         try:
-            return not any(directory.iterdir())
-        except Exception:
+            # 首先检查目录是否存在
+            if not directory.exists():
+                return False
+            
+            # 检查目录是否可读
+            if not directory.is_dir():
+                return False
+            
+            # 获取目录内容
+            contents = list(directory.iterdir())
+            
+            # 如果没有任何内容，则为空
+            if not contents:
+                logger.debug(f"目录 {directory} 完全为空")
+                return True
+            
+            # 检查是否只包含隐藏文件或系统文件
+            visible_contents = [item for item in contents if not item.name.startswith('.')]
+            
+            if not visible_contents:
+                logger.debug(f"目录 {directory} 只包含隐藏文件：{[item.name for item in contents]}")
+                # 可选择是否删除只包含隐藏文件的目录
+                return False  # 暂不删除包含隐藏文件的目录
+            
+            logger.debug(f"目录 {directory} 包含内容：{[item.name for item in contents[:5]]}")  # 只显示前5个
+            return False
+            
+        except PermissionError:
+            logger.warning(f"无权限访问目录：{directory}")
+            return False
+        except Exception as e:
+            logger.warning(f"检查目录 {directory} 时出错：{e}")
             return False
 
     def _is_subdirectory_or_same(self, path: Path, parent: Path) -> bool:
