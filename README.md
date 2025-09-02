@@ -1,6 +1,6 @@
 # MoviePilot 空文件清理器插件
 
-这是一个为 MoviePilot 开发的空文件清理器插件，主要用于自动删除指定目录下的空文件（包括子目录），支持排除指定目录。
+这是一个为 MoviePilot V2 开发的空文件清理器插件，主要用于自动删除指定目录下的空文件（包括子目录），支持排除指定目录。
 
 ## 主要功能
 
@@ -13,28 +13,25 @@
 ✅ 支持消息通知  
 ✅ 支持远程命令控制  
 ✅ 线程安全设计  
+✅ V2版本兼容性  
 
 ## 目录结构
 
 ```
-├── plugins/                    # V1版本插件
-│   └── emptyfilecleaner/
-│       ├── __init__.py        # 插件主文件
-│       └── README.md          # 详细说明文档
 ├── plugins.v2/                # V2版本插件
 │   └── emptyfilecleaner/
 │       └── __init__.py        # 插件主文件
-├── package.json               # V1版本插件配置
 ├── package.v2.json           # V2版本插件配置
-└── README.md                 # 本文件
+├── .gitignore                # Git忽略文件
+├── README.md                 # 本文件
+└── 配置示例.md               # 配置示例
 ```
 
 ## 快速开始
 
 ### 1. 安装插件
 
-将插件文件复制到 MoviePilot 的插件目录中：
-- V1版本：`plugins/emptyfilecleaner/`
+将插件文件复制到 MoviePilot V2 的插件目录中：
 - V2版本：`plugins.v2/emptyfilecleaner/`
 
 ### 2. 基本配置

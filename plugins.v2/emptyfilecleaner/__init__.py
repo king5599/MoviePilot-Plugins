@@ -22,7 +22,7 @@ class EmptyFileCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "assistant"
     # 作者主页
@@ -36,6 +36,9 @@ class EmptyFileCleaner(_PluginBase):
 
     def __init__(self):
         super().__init__()
+        # 版本检测
+        self._version = self._detect_version()
+        # 初始化变量
         self._enabled = False
         self._onlyonce = False
         self._cron = "0 2 * * *"
@@ -47,6 +50,18 @@ class EmptyFileCleaner(_PluginBase):
         self._dry_run = False
         self._scheduler: Optional[BackgroundScheduler] = None
         self._lock = threading.Lock()
+
+    def _detect_version(self) -> str:
+        """
+        检测MoviePilot版本
+        """
+        try:
+            if hasattr(settings, 'VERSION_FLAG'):
+                return settings.VERSION_FLAG  # V2
+            else:
+                return "v1"
+        except Exception:
+            return "v1"
 
     def init_plugin(self, config: dict = None):
         if config:
