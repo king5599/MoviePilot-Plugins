@@ -594,65 +594,65 @@ def create_style_static_1(image_path, title, font_path, font_size=(170,75), font
         for offset in range(3, shadow_offset + 1, 2):
             current_shadow_color = shadow_color[:3] + (shadow_alpha,)
             shadow_draw.text((zh_x + offset, zh_y + offset), title_zh, font=zh_font, fill=current_shadow_color)
-        
-            # 中文标题
-            draw.text((zh_x, zh_y), title_zh, font=zh_font, fill=text_color)
 
-            if en_lines:
-                # 英文标题起始位置
-                en_y = zh_y + zh_text_h + title_spacing
+        # 中文标题
+        draw.text((zh_x, zh_y), title_zh, font=zh_font, fill=text_color)
 
-                # 处理多行英文
-                for i, line in enumerate(en_lines):
-                    # 计算每行的水平居中位置
-                    line_bbox = draw.textbbox((0, 0), line, font=en_font)
-                    line_width = line_bbox[2] - line_bbox[0]
-                    line_height = line_bbox[3] - line_bbox[1]
+        if en_lines:
+            # 英文标题起始位置
+            en_y = zh_y + zh_text_h + title_spacing
 
-                    en_x = left_area_center_x - line_width // 2
-                    current_y = en_y + i * (line_height + en_line_spacing)
+            # 处理多行英文
+            for i, line in enumerate(en_lines):
+                # 计算每行的水平居中位置
+                line_bbox = draw.textbbox((0, 0), line, font=en_font)
+                line_width = line_bbox[2] - line_bbox[0]
+                line_height = line_bbox[3] - line_bbox[1]
 
-                    # 英文标题阴影效果
-                    for offset in range(2, shadow_offset // 2 + 1):
-                        current_shadow_color = shadow_color[:3] + (shadow_alpha,)
-                        shadow_draw.text((en_x + offset, current_y + offset), line, font=en_font, fill=current_shadow_color)
+                en_x = left_area_center_x - line_width // 2
+                current_y = en_y + i * (line_height + en_line_spacing)
 
-                    # 英文标题
-                    draw.text((en_x, current_y), line, font=en_font, fill=text_color)
+                # 英文标题阴影效果
+                for offset in range(2, shadow_offset // 2 + 1):
+                    current_shadow_color = shadow_color[:3] + (shadow_alpha,)
+                    shadow_draw.text((en_x + offset, current_y + offset), line, font=en_font, fill=current_shadow_color)
 
-            blurred_shadow = shadow_layer.filter(ImageFilter.GaussianBlur(radius=shadow_offset))
-            combined = Image.alpha_composite(canvas, blurred_shadow)
-            # 合并所有图层
-            combined = Image.alpha_composite(combined, text_layer)
+                # 英文标题
+                draw.text((en_x, current_y), line, font=en_font, fill=text_color)
 
-            # 转为 RGB
-            # rgb_image = combined.convert("RGB")
+        blurred_shadow = shadow_layer.filter(ImageFilter.GaussianBlur(radius=shadow_offset))
+        combined = Image.alpha_composite(canvas, blurred_shadow)
+        # 合并所有图层
+        combined = Image.alpha_composite(combined, text_layer)
 
-            def image_to_base64(image, format="auto", quality=85):
-                buffer = BytesIO()
-                if format.lower() == "auto":
-                    if image.mode == "RGBA" or (image.info.get('transparency') is not None):
-                        format = "PNG"
-                    else:
-                        try:
-                            image.save(buffer, format="WEBP", quality=quality, optimize=True)
-                            base64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
-                            return base64_str
-                        except Exception:
-                            format = "JPEG" # Fallback to JPEG if WebP fails
-                if format.lower() == "png":
-                    image.save(buffer, format="PNG", optimize=True)
-                    base64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
-                    return base64_str
-                elif format.lower() == "jpeg":
-                    image = image.convert("RGB") # Ensure RGB for JPEG
-                    image.save(buffer, format="JPEG", quality=quality, optimize=True, progressive=True)
-                    base64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
-                    return base64_str
+        # 转为 RGB
+        # rgb_image = combined.convert("RGB")
+
+        def image_to_base64(image, format="auto", quality=85):
+            buffer = BytesIO()
+            if format.lower() == "auto":
+                if image.mode == "RGBA" or (image.info.get('transparency') is not None):
+                    format = "PNG"
                 else:
-                    raise ValueError(f"Unsupported format: {format}")
+                    try:
+                        image.save(buffer, format="WEBP", quality=quality, optimize=True)
+                        base64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                        return base64_str
+                    except Exception:
+                        format = "JPEG" # Fallback to JPEG if WebP fails
+            if format.lower() == "png":
+                image.save(buffer, format="PNG", optimize=True)
+                base64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                return base64_str
+            elif format.lower() == "jpeg":
+                image = image.convert("RGB") # Ensure RGB for JPEG
+                image.save(buffer, format="JPEG", quality=quality, optimize=True, progressive=True)
+                base64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                return base64_str
+            else:
+                raise ValueError(f"Unsupported format: {format}")
 
-            return image_to_base64(combined)
+        return image_to_base64(combined)
         
     except Exception as e:
         logger.error(f"创建单图封面时出错: {e}")

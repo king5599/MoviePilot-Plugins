@@ -100,7 +100,7 @@ def draw_text_on_image(
     position = (int(round(float(position[0]))), int(round(float(position[1]))))
 
     # 创建一个可绘制的图像副本
-    img_copy = image.copy()
+    img_copy = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
     text_layer = Image.new('RGBA', img_copy.size, (255, 255, 255, 0))
     shadow_layer = Image.new('RGBA', img_copy.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(text_layer)
@@ -183,7 +183,7 @@ def draw_multiline_text_on_image(
     position = (int(round(float(position[0]))), int(round(float(position[1]))))
 
     # 创建一个可绘制的图像副本
-    img_copy = image.copy()
+    img_copy = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
     text_layer = Image.new('RGBA', img_copy.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(text_layer)
     font_size = int(max(1, round(float(font_size))))
@@ -1101,11 +1101,16 @@ def create_style_static_3(library_dir, title, font_path, font_size=(170,75), fon
         library_eng_name = title_en  # 默认英文名为空
 
         text_shadow_color = darken_color(blur_color, 0.8)
-        text_shadow_color = darken_color(blur_color, 0.8)
         zh_font_size = float(zh_font_size) * scale
         result = draw_text_on_image(
-            result, library_ch_name, (s(73.32), s(427.34) + zh_font_size * zh_font_offset), zh_font_path, "ch.ttf", int(max(1, round(zh_font_size))),
-            shadow=is_blur, shadow_color=text_shadow_color
+            result,
+            library_ch_name,
+            (s(73.32), s(427.34) + zh_font_size * zh_font_offset),
+            zh_font_path,
+            "ch.ttf",
+            int(max(1, round(zh_font_size))),
+            shadow=is_blur,
+            shadow_color=text_shadow_color,
         )
 
         # 如果有英文名，才添加英文名文字
