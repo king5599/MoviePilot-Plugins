@@ -60,7 +60,7 @@ class MediaCoverGenerator(_PluginBase):
     # 作者主页
     author_url = "https://github.com/king5599/MoviePilot-Plugins"
     # 插件配置项ID前缀
-    plugin_config_prefix = "mediacovergenerator_"
+    plugin_config_prefix = "mediacovergenerator_ashan_"
     # 加载顺序
     plugin_order = 2
     # 可使用的用户级别
