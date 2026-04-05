@@ -48,17 +48,17 @@ from app.plugins.mediacovergenerator.utils.color_helper import ColorHelper
 
 class MediaCoverGenerator(_PluginBase):
     # 插件名称
-    plugin_name = "Emby媒体库封面生成"
+    plugin_name = "Emby媒体库封面生成-ashan"
     # 插件描述
     plugin_desc = "生成媒体库动态/静态封面，支持 Emby/Jellyfin"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/icons/emby.png"
     # 插件版本
-    plugin_version = "0.9.5"
+    plugin_version = "0.1"
     # 插件作者
-    plugin_author = "justzerock"
+    plugin_author = "ashan"
     # 作者主页
-    author_url = "https://github.com/justzerock/MoviePilot-Plugins"
+    author_url = "https://github.com/king5599/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "mediacovergenerator_"
     # 加载顺序
