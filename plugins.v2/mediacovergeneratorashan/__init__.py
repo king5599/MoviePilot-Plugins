@@ -32,18 +32,18 @@ from app.schemas.types import EventType
 from app.schemas import ServiceInfo
 from app.utils.http import RequestUtils
 from app.utils.url import UrlUtils
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_static_1 import create_style_static_1
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_static_2 import create_style_static_2
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_static_3  import create_style_static_3
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_static_4 import create_style_static_4
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_animated_1 import create_style_animated_1
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_animated_2 import create_style_animated_2
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_animated_3 import create_style_animated_3
-from app.plugins.mediacovergeneratorashanashanashanashan.style.style_animated_4 import create_style_animated_4
-from app.plugins.mediacovergeneratorashanashanashanashan.utils.image_manager import ResolutionConfig, ImageResourceManager
-from app.plugins.mediacovergeneratorashanashanashanashan.utils.network_helper import NetworkHelper, validate_font_file
-from app.plugins.mediacovergeneratorashanashanashanashan.utils.performance_helper import PerformanceMonitor, ProgressTracker, memory_efficient_operation
-from app.plugins.mediacovergeneratorashanashanashanashan.utils.color_helper import ColorHelper
+from app.plugins.mediacovergeneratorashan.style.style_static_1 import create_style_static_1
+from app.plugins.mediacovergeneratorashan.style.style_static_2 import create_style_static_2
+from app.plugins.mediacovergeneratorashan.style.style_static_3  import create_style_static_3
+from app.plugins.mediacovergeneratorashan.style.style_static_4 import create_style_static_4
+from app.plugins.mediacovergeneratorashan.style.style_animated_1 import create_style_animated_1
+from app.plugins.mediacovergeneratorashan.style.style_animated_2 import create_style_animated_2
+from app.plugins.mediacovergeneratorashan.style.style_animated_3 import create_style_animated_3
+from app.plugins.mediacovergeneratorashan.style.style_animated_4 import create_style_animated_4
+from app.plugins.mediacovergeneratorashan.utils.image_manager import ResolutionConfig, ImageResourceManager
+from app.plugins.mediacovergeneratorashan.utils.network_helper import NetworkHelper, validate_font_file
+from app.plugins.mediacovergeneratorashan.utils.performance_helper import PerformanceMonitor, ProgressTracker, memory_efficient_operation
+from app.plugins.mediacovergeneratorashan.utils.color_helper import ColorHelper
 
 
 class MediaCoverGeneratorAshan(_PluginBase):
