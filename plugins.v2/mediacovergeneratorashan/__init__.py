@@ -55,7 +55,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/icons/emby.png"
     # 插件版本
-    plugin_version = "0.2.2"
+    plugin_version = "0.2.3"
     # 插件作者
     plugin_author = "ashan"
     # 作者主页
@@ -3079,6 +3079,18 @@ class MediaCoverGeneratorAshan(_PluginBase):
             logger.error(f"中文标题字体回退后仍不可用: {self._zh_font_path}")
             return False
 
+        self.__log_stage(
+            "info",
+            "generate-cover",
+            "准备渲染文字",
+            server=server,
+            library=library_name,
+            title_zh=title[0] if isinstance(title, tuple) and len(title) > 0 else None,
+            title_en=title[1] if isinstance(title, tuple) and len(title) > 1 else None,
+            zh_font=self._zh_font_path,
+            en_font=self._en_font_path,
+        )
+
         font_path = (str(self._zh_font_path), str(self._en_font_path))
         font_size = (float(zh_font_size), float(en_font_size))
 
@@ -3779,7 +3791,10 @@ class MediaCoverGeneratorAshan(_PluginBase):
         try:
             from PIL import ImageFont
             font = ImageFont.truetype(str(font_path), 32)
-            for ch in sample_text:
+            probe_text = f"{sample_text}中文测试"
+            signatures: List[str] = []
+            cjk_signatures: List[str] = []
+            for ch in probe_text:
                 if ch.isspace():
                     continue
                 bbox = font.getbbox(ch)
@@ -3789,6 +3804,32 @@ class MediaCoverGeneratorAshan(_PluginBase):
                 height = bbox[3] - bbox[1]
                 if width <= 0 or height <= 0:
                     return False
+                mask = font.getmask(ch, mode="L")
+                mask_bytes = bytes(mask)
+                ink = sum(mask_bytes)
+                if ink <= 0:
+                    return False
+                sig = f"{mask.size[0]}x{mask.size[1]}:{hashlib.md5(mask_bytes).hexdigest()}"
+                signatures.append(sig)
+                if '\u4e00' <= ch <= '\u9fff':
+                    cjk_signatures.append(sig)
+
+            fallback_like: set = set()
+            for fallback_ch in ("?", "□", "�"):
+                try:
+                    m = font.getmask(fallback_ch, mode="L")
+                    mb = bytes(m)
+                    if sum(mb) > 0:
+                        fallback_like.add(f"{m.size[0]}x{m.size[1]}:{hashlib.md5(mb).hexdigest()}")
+                except Exception:
+                    continue
+
+            # 大量中文都映射到同一个字形时，通常是字体不支持中文而回退为“口口口”。
+            unique_signatures = set(signatures)
+            if len(signatures) >= 3 and len(unique_signatures) <= 1:
+                return False
+            if cjk_signatures and fallback_like and all(sig in fallback_like for sig in cjk_signatures):
+                return False
             return True
         except Exception as e:
             logger.warning(f"检测字体字符支持失败 {font_path}: {e}")
@@ -3801,11 +3842,6 @@ class MediaCoverGeneratorAshan(_PluginBase):
 
         current_font_path = Path(str(self._zh_font_path))
         if self.__font_supports_text(current_font_path, zh_title[:4]):
-            return
-
-        current_name = current_font_path.name.lower()
-        cjk_hints = ("chaohei", "yasong", "noto", "sourcehan", "simhei", "heiti", "song")
-        if any(hint in current_name for hint in cjk_hints):
             return
 
         logger.warning(f"检测到中文标题 '{zh_title}'，当前主标题字体可能不支持中文: {self._zh_font_path}，尝试自动回退")
@@ -4220,13 +4256,43 @@ class MediaCoverGeneratorAshan(_PluginBase):
                 data=upload_bytes,
                 headers={
                     "Content-Type": content_type,
-                    "Content-Length": str(len(upload_bytes))
                 }
             )
 
-            # 某些环境下 post_data 可能将 bytes 处理异常，回退到旧逻辑重试一次
+            # 某些环境下 post_data 处理 bytes 时会失败，先记录一次失败详情再二进制重试。
             if not (res and res.status_code in [200, 204]):
-                logger.warning("二进制上传未成功，尝试使用旧版 base64 上传兼容模式")
+                first_status = res.status_code if res else "No response"
+                first_preview = None
+                if res is not None:
+                    try:
+                        first_preview = res.text[:500]
+                    except Exception:
+                        first_preview = None
+                self.__log_stage(
+                    "warning",
+                    "set-cover",
+                    "二进制上传首次失败，准备第二次二进制重试",
+                    server=service.name,
+                    library=library.get('Name'),
+                    library_id=library_id,
+                    status=first_status,
+                    response=first_preview,
+                    content_type=content_type,
+                )
+
+                # 第二次重试使用更宽松的二进制内容类型。
+                res = service.instance.post_data(
+                    url=url,
+                    data=upload_bytes,
+                    headers={
+                        "Content-Type": "application/octet-stream"
+                    }
+                )
+
+            # 双重二进制上传仍失败时，保留旧版 base64 最后兜底（并显式标记来源）
+            used_base64_fallback = False
+            if not (res and res.status_code in [200, 204]):
+                logger.warning("二进制上传仍未成功，尝试旧版 base64 上传兼容模式")
                 res = service.instance.post_data(
                     url=url,
                     data=image_base64,
@@ -4234,6 +4300,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
                         "Content-Type": content_type
                     }
                 )
+                used_base64_fallback = True
 
             # 清理临时文件
             if temp_file and temp_file.exists():
@@ -4243,6 +4310,15 @@ class MediaCoverGeneratorAshan(_PluginBase):
                     pass
             
             if res and res.status_code in [200, 204]:
+                if used_base64_fallback:
+                    self.__log_stage(
+                        "warning",
+                        "set-cover",
+                        "封面上传通过 base64 兜底成功，可能存在服务端未真正替换图片的风险",
+                        server=service.name,
+                        library=library.get('Name'),
+                        library_id=library_id,
+                    )
                 self.__log_stage(
                     "info",
                     "set-cover",
@@ -4253,6 +4329,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
                     status=res.status_code,
                     content_type=content_type,
                     upload_source=upload_source,
+                    transport="base64-fallback" if used_base64_fallback else "binary",
                 )
                 return True
             else:
