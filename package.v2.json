@@ -3,12 +3,13 @@
         "name": "Emby媒体库封面生成-ashan",
         "description": "生成媒体库动态/静态封面，支持 Emby/Jellyfin",
         "labels": "Emby,动态封面,媒体库",
-        "version": "0.1",
+        "version": "0.2",
         "icon": "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/icons/emby.png",
         "author": "ashan",
         "level": 1,
         "history": {
-            "v0.1": "初始版本，支持生成动态封面和静态封面"
+            "v0.1": "初始版本，支持生成动态封面和静态封面",
+            "v0.2": "优化封面生成算法，提升封面质量"
         }
     }
 }

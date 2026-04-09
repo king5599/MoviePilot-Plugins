@@ -163,4 +163,6 @@ cython_debug/
 .vscode/
 .DS_Store
 ._*
+.AppleDouble
+.LSOverride
 plugins.v2/.DS_Store

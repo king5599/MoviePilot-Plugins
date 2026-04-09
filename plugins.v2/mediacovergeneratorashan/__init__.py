@@ -54,7 +54,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/icons/emby.png"
     # 插件版本
-    plugin_version = "0.1"
+    plugin_version = "0.2"
     # 插件作者
     plugin_author = "ashan"
     # 作者主页
@@ -522,11 +522,11 @@ class MediaCoverGeneratorAshan(_PluginBase):
         zh_exts = [".ttf", ".otf", ".woff2", ".woff"]
         en_exts = [".ttf", ".otf", ".woff2", ".woff"]
 
-        for spec in all_specs:
+        for spec in zh_specs:
             found = self.__find_font_file(spec["aliases"], zh_exts)
             zh_paths[spec["value"]] = found
             zh_items.append({"title": spec["title"], "value": spec["value"]})
-        for spec in all_specs:
+        for spec in en_specs:
             found = self.__find_font_file(spec["aliases"], en_exts)
             en_paths[spec["value"]] = found
             en_items.append({"title": spec["title"], "value": spec["value"]})
@@ -2873,6 +2873,8 @@ class MediaCoverGeneratorAshan(_PluginBase):
         logger.info("开始更新媒体库封面 ...")
         # 开始前确保停止信号已清除
         self._event.clear()
+        total_success_count = 0
+        total_fail_count = 0
         for server, service in self._servers.items():
             # 扫描所有媒体库
             logger.info(f"当前服务器 {server}")
@@ -2892,8 +2894,8 @@ class MediaCoverGeneratorAshan(_PluginBase):
             if not libraries:
                 logger.warning(f"服务器 {server} 的媒体库列表获取失败")
                 continue
-            success_count = 0
-            fail_count = 0
+            server_success_count = 0
+            server_fail_count = 0
             for library in libraries:
                 if self._event.is_set():
                     logger.info("媒体库封面更新服务停止")
@@ -2908,11 +2910,14 @@ class MediaCoverGeneratorAshan(_PluginBase):
                     continue
                 if self.__update_library(service, library):
                     logger.info(f"媒体库 {server}：{library['Name']} 封面更新成功")
-                    success_count += 1
+                    server_success_count += 1
+                    total_success_count += 1
                 else:
                     logger.warning(f"媒体库 {server}：{library['Name']} 封面更新失败")
-                    fail_count += 1
-        tips = f"媒体库封面更新任务结束，成功 {success_count} 个，失败 {fail_count} 个"
+                    server_fail_count += 1
+                    total_fail_count += 1
+            logger.info(f"媒体库 {server} 处理结束：成功 {server_success_count} 个，失败 {server_fail_count} 个")
+        tips = f"媒体库封面更新任务结束，成功 {total_success_count} 个，失败 {total_fail_count} 个"
         logger.info(tips)
         return tips
                  
@@ -3021,6 +3026,14 @@ class MediaCoverGeneratorAshan(_PluginBase):
 
         if not validate_font_file(Path(self._en_font_path)):
             logger.error(f"副标题字体文件无效: {self._en_font_path}")
+            return False
+
+        # 定时任务场景下，若误选了英文字体作为主标题字体，中文标题会出现“无字”现象。
+        # 在渲染前做一次保护性回退，确保中文标题可见。
+        self.__ensure_chinese_font_for_title(title[0] if isinstance(title, tuple) and len(title) > 0 else "")
+
+        if not validate_font_file(Path(self._zh_font_path)):
+            logger.error(f"中文标题字体回退后仍不可用: {self._zh_font_path}")
             return False
 
         font_path = (str(self._zh_font_path), str(self._en_font_path))
@@ -3675,10 +3688,48 @@ class MediaCoverGeneratorAshan(_PluginBase):
         else:
             logger.debug(f"未找到媒体库 '{library_name}' 的配置，使用默认标题")
             # 如果没有找到配置，检查是否是数字开头的媒体库名导致的问题
-            if library_name and (library_name[0].isdigit() or library_name[0].isalpha()):
+            if library_name and (library_name[0].isdigit() or (library_name[0].isascii() and library_name[0].isalpha())):
                 logger.info(f"媒体库名 '{library_name}' 以数字或字母开头，如果需要自定义标题，请在配置中使用引号包围媒体库名，例如: \"{library_name}\":")
 
         return (zh_title, en_title, bg_color)
+
+    def __contains_cjk(self, text: Optional[str]) -> bool:
+        if not text:
+            return False
+        for ch in str(text):
+            if '\u4e00' <= ch <= '\u9fff':
+                return True
+        return False
+
+    def __ensure_chinese_font_for_title(self, zh_title: str) -> None:
+        """当标题包含中文但当前字体明显不支持中文时，回退到中文预设字体。"""
+        if not self.__contains_cjk(zh_title) or not self._zh_font_path:
+            return
+
+        current_name = Path(str(self._zh_font_path)).name.lower()
+        cjk_hints = ("chaohei", "yasong", "noto", "sourcehan", "simhei", "heiti", "song")
+        if any(hint in current_name for hint in cjk_hints):
+            return
+
+        logger.warning(f"检测到中文标题 '{zh_title}'，当前主标题字体可能不支持中文: {self._zh_font_path}，尝试自动回退")
+        _, _, zh_preset_paths, _ = self.__get_font_presets()
+        for preset_name in ("chaohei", "yasong"):
+            preset_path = zh_preset_paths.get(preset_name)
+            if preset_path and validate_font_file(Path(preset_path)):
+                self._zh_font_path = preset_path
+                logger.info(f"主标题字体已回退到中文预设: {self._zh_font_path}")
+                return
+
+        fallback_file = Path(self._font_path) / "chaohei.ttf"
+        if validate_font_file(fallback_file):
+            self._zh_font_path = fallback_file
+            logger.info(f"主标题字体已回退到缓存中文字体: {self._zh_font_path}")
+            return
+
+        fallback_url = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/fonts/chaohei.ttf"
+        if self.download_font_safely_with_timeout(fallback_url, fallback_file):
+            self._zh_font_path = fallback_file
+            logger.info(f"主标题字体已下载并回退到中文字体: {self._zh_font_path}")
     
     def __get_server_libraries(self, service):
         try:
@@ -4248,7 +4299,10 @@ class MediaCoverGeneratorAshan(_PluginBase):
 
         _, _, zh_preset_paths, en_preset_paths = self.__get_font_presets()
 
-        if not self._zh_font_preset:
+        valid_zh_presets = {"chaohei", "yasong"}
+        valid_en_presets = {"EmblemaOne", "Melete", "Phosphate", "JosefinSans", "LilitaOne", "Monoton", "Plaster"}
+
+        if not self._zh_font_preset or self._zh_font_preset not in valid_zh_presets:
             self._zh_font_preset = "chaohei"
 
         default_font_url = {
@@ -4264,7 +4318,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
         }
         default_zh_url = default_font_url.get(self._zh_font_preset, "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/fonts/chaohei.ttf")
 
-        if not self._en_font_preset:
+        if not self._en_font_preset or self._en_font_preset not in valid_en_presets:
             self._en_font_preset = "EmblemaOne"
 
         default_en_url = default_font_url.get(self._en_font_preset, "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/fonts/EmblemaOne.woff2")
