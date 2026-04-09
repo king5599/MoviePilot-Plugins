@@ -9,6 +9,7 @@ import threading
 import time
 import shutil
 import random
+import traceback
 from pathlib import Path
 from urllib.parse import urlparse, quote, unquote
 from typing import Any, Dict, List, Optional, Tuple
@@ -54,7 +55,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/icons/emby.png"
     # 插件版本
-    plugin_version = "0.2.1"
+    plugin_version = "0.2.2"
     # 插件作者
     plugin_author = "ashan"
     # 作者主页
@@ -137,6 +138,48 @@ class MediaCoverGeneratorAshan(_PluginBase):
 
     def __init__(self):
         super().__init__()
+
+    def __format_log_context(self, **kwargs) -> str:
+        parts: List[str] = []
+        for key, value in kwargs.items():
+            if value is None:
+                continue
+            try:
+                text = str(value).replace("\n", "\\n")
+            except Exception:
+                text = "<unprintable>"
+            if len(text) > 260:
+                text = f"{text[:260]}..."
+            parts.append(f"{key}={text}")
+        return " | ".join(parts)
+
+    def __log_stage(self, level: str, stage: str, message: str, **kwargs) -> None:
+        context = self.__format_log_context(**kwargs)
+        payload = f"[{stage}] {message}" if not context else f"[{stage}] {message} | {context}"
+        log_func = getattr(logger, level, logger.info)
+        log_func(payload)
+
+    def __log_exception(self, stage: str, err: Exception, **kwargs) -> None:
+        last_frame = None
+        try:
+            stack = traceback.extract_tb(err.__traceback__) if err and err.__traceback__ else []
+            if stack:
+                last_frame = stack[-1]
+        except Exception:
+            last_frame = None
+
+        location = "unknown"
+        if last_frame:
+            location = f"{os.path.basename(last_frame.filename)}:{last_frame.lineno}#{last_frame.name}"
+
+        self.__log_stage(
+            "error",
+            stage,
+            f"异常: {err}",
+            location=location,
+            **kwargs,
+        )
+        logger.debug(traceback.format_exc())
 
     def init_plugin(self, config: dict = None):
         self.mschain = MediaServerChain()
@@ -3221,6 +3264,29 @@ class MediaCoverGeneratorAshan(_PluginBase):
                                                     animation_reduce_colors=self._animation_reduce_colors,
                                                     image_count=animated_2_image_count,
                                                     stop_event=self._event)
+        if not image_data:
+            self.__log_stage(
+                "error",
+                "generate-cover",
+                "封面生成返回空结果",
+                server=server,
+                library=library_name,
+                style=self._cover_style,
+                source_image=image_path,
+                zh_font=self._zh_font_path,
+                en_font=self._en_font_path,
+                resolution=self._resolution_config,
+            )
+            return False
+
+        self.__log_stage(
+            "info",
+            "generate-cover",
+            "封面生成完成",
+            server=server,
+            library=library_name,
+            style=self._cover_style,
+        )
         return image_data
     
     def __generate_from_server(self, service, library, title):
@@ -4025,13 +4091,13 @@ class MediaCoverGeneratorAshan(_PluginBase):
             return None
 
 
-    def __save_image_to_local(self, image_content, server_name: str, library_name: str, extension: str):
+    def __save_image_to_local(self, image_content, server_name: str, library_name: str, extension: str) -> Optional[Path]:
         """
         保存图片到本地路径
         """
         try:
             if not self._save_recent_covers:
-                return
+                return None
             # 确保目录存在
             local_path = str(self.__get_recent_cover_output_dir())
             os.makedirs(local_path, exist_ok=True)
@@ -4047,8 +4113,25 @@ class MediaCoverGeneratorAshan(_PluginBase):
                 f.write(image_content)
             logger.info(f"图片已保存到本地: {file_path}")
             self.__trim_saved_cover_history(local_path, safe_server, safe_library)
+            return Path(file_path)
         except Exception as err:
             logger.error(f"保存图片到本地失败: {str(err)}")
+            return None
+
+    def __write_cover_temp_file(self, image_content: bytes, extension: str) -> Optional[Path]:
+        """将封面落地到插件临时目录，确保上传使用完整本地文件。"""
+        try:
+            temp_dir = self.get_data_path() / "temp_upload"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            ext = extension.strip(".").lower() if extension else "jpg"
+            tmp_name = f"cover_{int(time.time() * 1000)}.{ext}"
+            temp_file = temp_dir / tmp_name
+            with open(temp_file, "wb") as f:
+                f.write(image_content)
+            return temp_file
+        except Exception as err:
+            logger.error(f"写入临时封面文件失败: {err}")
+            return None
 
     def __trim_saved_cover_history(self, local_path: str, safe_server: str, safe_library: str):
         limit = self.__clamp_value(
@@ -4110,29 +4193,96 @@ class MediaCoverGeneratorAshan(_PluginBase):
                 content_type = "image/jpeg"
                 extension = "jpg"
 
-            # 在发送前保存一份图片到本地
-            if self._save_recent_covers:
-                try:
-                    image_bytes = base64.b64decode(image_base64)
-                    self.__save_image_to_local(image_bytes, service.name, library['Name'], extension)
-                except Exception as save_err:
-                    logger.error(f"保存发送前图片失败: {str(save_err)}")
-            
+            try:
+                image_bytes = base64.b64decode(image_base64)
+            except Exception as decode_err:
+                logger.error(f"封面Base64解码失败: {decode_err}")
+                return False
+
+            # 本地先生成完整文件，再从文件上传，避免直接 base64 发送导致 Emby 不生效。
+            saved_file = self.__save_image_to_local(image_bytes, service.name, library['Name'], extension)
+            temp_file = self.__write_cover_temp_file(image_bytes, extension)
+
+            upload_bytes = image_bytes
+            upload_source = "memory"
+            try:
+                source_file = temp_file or saved_file
+                if source_file and source_file.exists():
+                    upload_bytes = source_file.read_bytes()
+                    upload_source = str(source_file)
+            except Exception as read_err:
+                logger.warning(f"读取本地封面文件失败，将回退内存上传: {read_err}")
+
+            logger.info(f"上传封面来源: {upload_source}")
+
             res = service.instance.post_data(
                 url=url,
-                data=image_base64,
+                data=upload_bytes,
                 headers={
-                    "Content-Type": content_type
+                    "Content-Type": content_type,
+                    "Content-Length": str(len(upload_bytes))
                 }
             )
+
+            # 某些环境下 post_data 可能将 bytes 处理异常，回退到旧逻辑重试一次
+            if not (res and res.status_code in [200, 204]):
+                logger.warning("二进制上传未成功，尝试使用旧版 base64 上传兼容模式")
+                res = service.instance.post_data(
+                    url=url,
+                    data=image_base64,
+                    headers={
+                        "Content-Type": content_type
+                    }
+                )
+
+            # 清理临时文件
+            if temp_file and temp_file.exists():
+                try:
+                    temp_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
             
             if res and res.status_code in [200, 204]:
+                self.__log_stage(
+                    "info",
+                    "set-cover",
+                    "封面上传成功",
+                    server=service.name,
+                    library=library.get('Name'),
+                    library_id=library_id,
+                    status=res.status_code,
+                    content_type=content_type,
+                    upload_source=upload_source,
+                )
                 return True
             else:
-                logger.error(f"设置「{library['Name']}」封面失败，错误码：{res.status_code if res else 'No response'}")
+                response_preview = None
+                if res is not None:
+                    try:
+                        response_preview = res.text[:500]
+                    except Exception:
+                        response_preview = None
+                self.__log_stage(
+                    "error",
+                    "set-cover",
+                    "设置封面失败",
+                    server=service.name,
+                    library=library.get('Name'),
+                    library_id=library_id,
+                    status=res.status_code if res else "No response",
+                    url=url,
+                    content_type=content_type,
+                    upload_source=upload_source,
+                    response=response_preview,
+                )
                 return False
         except Exception as err:
-            logger.error(f"设置「{library['Name']}」封面失败：{str(err)}")
+            self.__log_exception(
+                "set-cover",
+                err,
+                server=getattr(service, 'name', None),
+                library=library.get('Name') if isinstance(library, dict) else None,
+            )
         return False
 
     def clean_cover_history(self, save=True):
@@ -4476,7 +4626,16 @@ class MediaCoverGeneratorAshan(_PluginBase):
             else:
                 # 字体获取失败，设置为None并记录错误
                 setattr(self, final_attr, None)
-                logger.error(f"{log_prefix}{lang}字体获取失败，这可能导致封面生成失败")
+                self.__log_stage(
+                    "error",
+                    "font-init",
+                    f"{log_prefix}{lang}字体获取失败",
+                    lang=lang,
+                    url=url,
+                    local_path=local_path_cfg,
+                    target=downloaded_font_file_path,
+                    hash_file=hash_file_path,
+                )
 
         # 检查是否所有必要的字体都已获取
         if not self._zh_font_path or not self._en_font_path:
@@ -4547,7 +4706,13 @@ class MediaCoverGeneratorAshan(_PluginBase):
             return True
 
         except Exception as e:
-            logger.error(f"健康检查失败: {e}")
+            self.__log_exception(
+                "health-check",
+                e,
+                resolution=self._resolution,
+                zh_font=self._zh_font_path,
+                en_font=self._en_font_path,
+            )
             return False
 
     def download_font_safely_with_timeout(self, font_url: str, font_path: Path, timeout: int = 60) -> bool:
@@ -4559,7 +4724,13 @@ class MediaCoverGeneratorAshan(_PluginBase):
             return self.download_font_safely(font_url, font_path, retries=1, timeout=timeout)
 
         except Exception as e:
-            logger.error(f"字体下载过程中出现异常: {e}")
+            self.__log_exception(
+                "font-download-timeout",
+                e,
+                font_url=font_url,
+                font_path=font_path,
+                timeout=timeout,
+            )
             return False
 
     def download_font_safely(self, font_url: str, font_path: Path, retries: int = 2, timeout: int = 30):
@@ -4623,7 +4794,13 @@ class MediaCoverGeneratorAshan(_PluginBase):
                     logger.warning(f"策略 {strategy_name} 下载失败")
 
             except Exception as e:
-                logger.warning(f"策略 {strategy_name} 下载出错: {e}")
+                self.__log_exception(
+                    "font-download-strategy",
+                    e,
+                    strategy=strategy_name,
+                    target_url=target_url,
+                    font_path=font_path,
+                )
                 # 清理可能的临时文件
                 if temp_path.exists():
                     try:
