@@ -2978,6 +2978,23 @@ class MediaCoverGeneratorAshan(_PluginBase):
         else:
             title = title_result
             config_bg_color = None
+
+        # 防御性处理：若配置把中文标题置空，自动回退为媒体库名，避免“纯图片无标题”。
+        try:
+            if isinstance(title, tuple) and len(title) >= 2:
+                safe_zh = str(title[0]).strip() if title[0] is not None else ""
+                safe_en = str(title[1]).strip() if title[1] is not None else ""
+                if not safe_zh:
+                    self.__log_stage(
+                        "warning",
+                        "title",
+                        "中文标题为空，已自动回退为媒体库名",
+                        server=service.name,
+                        library=library_name,
+                    )
+                    title = (library_name, safe_en)
+        except Exception:
+            pass
         if image_path:
             logger.info(f"媒体库 {service.name}：{library_name} 从自定义路径获取封面")
             image_data = self.__generate_image_from_path(service.name, library_name, title, image_path[0], config_bg_color)
@@ -3071,8 +3088,8 @@ class MediaCoverGeneratorAshan(_PluginBase):
             logger.error(f"副标题字体文件无效: {self._en_font_path}")
             return False
 
-        # 定时任务场景下，若误选了英文字体作为主标题字体，中文标题会出现“无字”现象。
-        # 在渲染前做一次保护性回退，确保中文标题可见。
+        # 结果优先：标题含中文时，强制选择可渲染中文的主标题字体。
+        self.__force_zh_font_for_cjk_title(title[0] if isinstance(title, tuple) and len(title) > 0 else "")
         self.__ensure_chinese_font_for_title(title[0] if isinstance(title, tuple) and len(title) > 0 else "")
 
         if not validate_font_file(Path(self._zh_font_path)):
@@ -3868,6 +3885,57 @@ class MediaCoverGeneratorAshan(_PluginBase):
         if self.download_font_safely_with_timeout(fallback_url, fallback_file):
             self._zh_font_path = fallback_file
             logger.info(f"主标题字体已下载并回退到中文字体: {self._zh_font_path}")
+
+    def __force_zh_font_for_cjk_title(self, zh_title: str) -> None:
+        """结果优先策略：标题含中文时，强制主标题字体使用可渲染中文的字体。"""
+        if not self.__contains_cjk(zh_title):
+            return
+
+        _, _, zh_preset_paths, _ = self.__get_font_presets()
+        for preset_name in ("chaohei", "yasong"):
+            preset_path = zh_preset_paths.get(preset_name)
+            if not preset_path:
+                continue
+            preset_p = Path(preset_path)
+            if validate_font_file(preset_p) and self.__font_supports_text(preset_p, zh_title[:4]):
+                if str(self._zh_font_path) != str(preset_p):
+                    self.__log_stage(
+                        "warning",
+                        "font-force",
+                        "中文标题触发强制字体切换",
+                        title_zh=zh_title,
+                        from_font=self._zh_font_path,
+                        to_font=str(preset_p),
+                    )
+                self._zh_font_path = preset_p
+                return
+
+        fallback_file = Path(self._font_path) / "chaohei.ttf"
+        if self.__is_http_url(self._zh_font_custom):
+            fallback_url = str(self._zh_font_custom).strip()
+        elif self.__is_http_url(self._zh_font_url):
+            fallback_url = str(self._zh_font_url).strip()
+        else:
+            fallback_url = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/fonts/chaohei.ttf"
+
+        if self.download_font_safely_with_timeout(fallback_url, fallback_file) and self.__font_supports_text(fallback_file, zh_title[:4]):
+            self._zh_font_path = fallback_file
+            self.__log_stage(
+                "warning",
+                "font-force",
+                "中文标题使用下载字体进行强制渲染",
+                title_zh=zh_title,
+                font=str(fallback_file),
+            )
+            return
+
+        self.__log_stage(
+            "error",
+            "font-force",
+            "未找到可渲染中文的主标题字体，中文标题可能不可见",
+            title_zh=zh_title,
+            current_zh_font=self._zh_font_path,
+        )
     
     def __get_server_libraries(self, service):
         try:
