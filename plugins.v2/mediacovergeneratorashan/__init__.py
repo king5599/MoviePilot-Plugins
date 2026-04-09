@@ -3688,7 +3688,7 @@ class MediaCoverGeneratorAshan(_PluginBase):
         else:
             logger.debug(f"未找到媒体库 '{library_name}' 的配置，使用默认标题")
             # 如果没有找到配置，检查是否是数字开头的媒体库名导致的问题
-            if library_name and (library_name[0].isdigit() or (library_name[0].isascii() and library_name[0].isalpha())):
+            if library_name and re.match(r'^[A-Za-z0-9]', str(library_name)):
                 logger.info(f"媒体库名 '{library_name}' 以数字或字母开头，如果需要自定义标题，请在配置中使用引号包围媒体库名，例如: \"{library_name}\":")
 
         return (zh_title, en_title, bg_color)
@@ -3701,12 +3701,43 @@ class MediaCoverGeneratorAshan(_PluginBase):
                 return True
         return False
 
+    def __is_http_url(self, value: Optional[str]) -> bool:
+        if not value:
+            return False
+        return re.match(r'^https?://[^\s]+$', str(value).strip(), re.IGNORECASE) is not None
+
+    def __font_supports_text(self, font_path: Path, sample_text: str) -> bool:
+        """快速检测字体是否可渲染给定文本（用于中文字体兜底判断）。"""
+        if not font_path or not sample_text or not validate_font_file(font_path):
+            return False
+        try:
+            from PIL import ImageFont
+            font = ImageFont.truetype(str(font_path), 32)
+            for ch in sample_text:
+                if ch.isspace():
+                    continue
+                bbox = font.getbbox(ch)
+                if not bbox:
+                    return False
+                width = bbox[2] - bbox[0]
+                height = bbox[3] - bbox[1]
+                if width <= 0 or height <= 0:
+                    return False
+            return True
+        except Exception as e:
+            logger.warning(f"检测字体字符支持失败 {font_path}: {e}")
+            return False
+
     def __ensure_chinese_font_for_title(self, zh_title: str) -> None:
         """当标题包含中文但当前字体明显不支持中文时，回退到中文预设字体。"""
         if not self.__contains_cjk(zh_title) or not self._zh_font_path:
             return
 
-        current_name = Path(str(self._zh_font_path)).name.lower()
+        current_font_path = Path(str(self._zh_font_path))
+        if self.__font_supports_text(current_font_path, zh_title[:4]):
+            return
+
+        current_name = current_font_path.name.lower()
         cjk_hints = ("chaohei", "yasong", "noto", "sourcehan", "simhei", "heiti", "song")
         if any(hint in current_name for hint in cjk_hints):
             return
@@ -3726,7 +3757,12 @@ class MediaCoverGeneratorAshan(_PluginBase):
             logger.info(f"主标题字体已回退到缓存中文字体: {self._zh_font_path}")
             return
 
-        fallback_url = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/fonts/chaohei.ttf"
+        if self.__is_http_url(self._zh_font_custom):
+            fallback_url = str(self._zh_font_custom).strip()
+        elif self.__is_http_url(self._zh_font_url):
+            fallback_url = str(self._zh_font_url).strip()
+        else:
+            fallback_url = "https://raw.githubusercontent.com/justzerock/MoviePilot-Plugins/main/fonts/chaohei.ttf"
         if self.download_font_safely_with_timeout(fallback_url, fallback_file):
             self._zh_font_path = fallback_file
             logger.info(f"主标题字体已下载并回退到中文字体: {self._zh_font_path}")
@@ -4326,13 +4362,17 @@ class MediaCoverGeneratorAshan(_PluginBase):
         log_prefix = "默认"
         zh_custom_type = detect_string_type(self._zh_font_custom)
         en_custom_type = detect_string_type(self._en_font_custom)
-        current_zh_font_url = self._zh_font_custom if zh_custom_type == 'url' else default_zh_url
-        current_en_font_url = self._en_font_custom if en_custom_type == 'url' else default_en_url
+        zh_url_override = str(self._zh_font_url).strip() if self.__is_http_url(self._zh_font_url) else None
+        en_url_override = str(self._en_font_url).strip() if self.__is_http_url(self._en_font_url) else None
+        current_zh_font_url = self._zh_font_custom if zh_custom_type == 'url' else (zh_url_override or default_zh_url)
+        current_en_font_url = self._en_font_custom if en_custom_type == 'url' else (en_url_override or default_en_url)
         zh_local_path_config = self._zh_font_custom if zh_custom_type == 'path' else zh_preset_paths.get(self._zh_font_preset)
         en_local_path_config = self._en_font_custom if en_custom_type == 'path' else en_preset_paths.get(self._en_font_preset)
 
-        downloaded_zh_font_base = f"{self._zh_font_preset}_custom" if zh_custom_type == 'url' else self._zh_font_preset
-        downloaded_en_font_base = f"{self._en_font_preset}_custom" if en_custom_type == 'url' else self._en_font_preset
+        use_custom_zh_url = zh_custom_type == 'url' or bool(zh_url_override)
+        use_custom_en_url = en_custom_type == 'url' or bool(en_url_override)
+        downloaded_zh_font_base = f"{self._zh_font_preset}_custom" if use_custom_zh_url else self._zh_font_preset
+        downloaded_en_font_base = f"{self._en_font_preset}_custom" if use_custom_en_url else self._en_font_preset
         hash_zh_file_name = f"{downloaded_zh_font_base}_url.hash"
         hash_en_file_name = f"{downloaded_en_font_base}_url.hash"
         final_zh_font_path_attr = "_zh_font_path"
@@ -4381,9 +4421,12 @@ class MediaCoverGeneratorAshan(_PluginBase):
             if local_path_cfg:
                 local_font_p = Path(local_path_cfg)
                 if validate_font_file(local_font_p):
-                    logger.info(f"{lang}字体: 使用本地指定路径 {local_font_p}")
-                    current_font_path = local_font_p
-                    using_local_font = True
+                    if lang == "主标题" and not self.__font_supports_text(local_font_p, "中文测试"):
+                        logger.warning(f"{lang}字体: 本地指定路径 {local_font_p} 不支持中文字符，将回退到预设/下载字体")
+                    else:
+                        logger.info(f"{lang}字体: 使用本地指定路径 {local_font_p}")
+                        current_font_path = local_font_p
+                        using_local_font = True
                 else:
                     logger.warning(f"{log_prefix}{lang}字体: 本地指定路径 {local_font_p} 无效或文件不存在。")
 
